@@ -3270,32 +3270,27 @@ body {
     const NETLIFY_API = '/.netlify/functions/checkin';
 
     let locationData = null;
-
     let capturedImage = null;
-
     let cameraStream = null;
-
     let isSubmitting = false;
+
+    // ĐÃ THÊM: state cho cơ chế chống ghi trùng + tự động retry
+    let currentCheckinId = null;
+    let submitRetryCount = 0;
+    const MAX_SUBMIT_RETRIES = 2;       // thử lại tối đa 2 lần khi mất kết nối
+    const SUBMIT_RETRY_DELAY_MS = 2500; // chờ 2.5s giữa các lần thử lại
 
 
     /* ==========================================
        INITIALIZE
        ========================================== */
 
-    window.addEventListener(
-      'load',
-      initialize
-    );
-
+    window.addEventListener('load', initialize);
 
     async function initialize() {
 
       updateClock();
-
-      setInterval(
-        updateClock,
-        1000
-      );
+      setInterval(updateClock, 1000);
 
       try {
         const configResponse = await fetch(
@@ -3321,9 +3316,7 @@ body {
 
     function waitForGoogleIdentity(clientId, attempts = 0) {
 
-      if (window.google &&
-          google.accounts &&
-          google.accounts.id) {
+      if (window.google && google.accounts && google.accounts.id) {
 
         google.accounts.id.initialize({
           client_id: clientId,
@@ -3332,38 +3325,27 @@ body {
           cancel_on_tap_outside: false
         });
 
-        const button = document.getElementById(
-          'googleLoginButton'
-        );
+        const button = document.getElementById('googleLoginButton');
 
-        google.accounts.id.renderButton(
-          button,
-          {
-            type: 'standard',
-            theme: 'outline',
-            size: 'large',
-            text: 'signin_with',
-            shape: 'pill',
-            width: 280
-          }
-        );
+        google.accounts.id.renderButton(button, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          text: 'signin_with',
+          shape: 'pill',
+          width: 280
+        });
 
-        // Tự động nhận tài khoản Google nếu trình duyệt cho phép.
         google.accounts.id.prompt();
         return;
       }
 
       if (attempts < 50) {
-        setTimeout(
-          () => waitForGoogleIdentity(clientId, attempts + 1),
-          100
-        );
+        setTimeout(() => waitForGoogleIdentity(clientId, attempts + 1), 100);
         return;
       }
 
-      throw new Error(
-        'Không tải được Google đăng nhập. Vui lòng tải lại trang.'
-      );
+      throw new Error('Không tải được Google đăng nhập. Vui lòng tải lại trang.');
     }
 
 
@@ -3375,14 +3357,9 @@ body {
         }
 
         googleIdToken = credentialResponse.credential;
-
         setAuthStatus('Đang xác thực tài khoản Google...');
 
-        const response = await callApi(
-          'getCurrentUser',
-          {}
-        );
-
+        const response = await callApi('getCurrentUser', {});
         handleUserResponse(response);
       } catch (error) {
         handleServerError(error);
@@ -3391,10 +3368,7 @@ body {
 
 
     function setAuthStatus(message) {
-      const status = document.querySelector(
-        '#loadingScreen .loading-box > div[style]'
-      );
-
+      const status = document.querySelector('#loadingScreen .loading-box > div[style]');
       if (status) {
         status.textContent = message;
       }
@@ -3404,41 +3378,29 @@ body {
     async function callApi(action, data) {
 
       if (!googleIdToken) {
-        throw new Error(
-          'Phiên đăng nhập Google chưa sẵn sàng. Vui lòng đăng nhập lại.'
-        );
+        throw new Error('Phiên đăng nhập Google chưa sẵn sàng. Vui lòng đăng nhập lại.');
       }
 
-      const response = await fetch(
-        NETLIFY_API,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            action: action,
-            idToken: googleIdToken,
-            data: data
-          })
-        }
-      );
+      const response = await fetch(NETLIFY_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: action,
+          idToken: googleIdToken,
+          data: data
+        })
+      });
 
       let result;
 
       try {
         result = await response.json();
       } catch (_) {
-        throw new Error(
-          'Hệ thống trả về dữ liệu không hợp lệ.'
-        );
+        throw new Error('Hệ thống trả về dữ liệu không hợp lệ.');
       }
 
       if (!response.ok) {
-        throw new Error(
-          result?.message ||
-          'Không thể kết nối hệ thống điểm danh.'
-        );
+        throw new Error(result?.message || 'Không thể kết nối hệ thống điểm danh.');
       }
 
       return result;
@@ -3453,89 +3415,38 @@ body {
 
       hideLoading();
 
-
-      if (
-        !response ||
-        !response.success
-      ) {
-
-        showError(
-          response?.message ||
-          'Không thể xác thực tài khoản.'
-        );
-
+      if (!response || !response.success) {
+        showError(response?.message || 'Không thể xác thực tài khoản.');
         return;
       }
 
-
-      employee =
-        response.employee;
-
-
+      employee = response.employee;
       renderEmployee();
-
       showApp();
-
-
     }
 
 
     function renderEmployee() {
 
-      const name =
-        employee.name || 'Nhân viên';
+      const name = employee.name || 'Nhân viên';
 
-
-      document.getElementById(
-        'employeeName'
-      ).textContent = name;
-
-
-      document.getElementById(
-        'employeeDepartment'
-      ).textContent =
-        employee.department || 'ECORP';
-
-
-      document.getElementById(
-        'employeeCode'
-      ).textContent =
-        employee.employeeId || '--';
-
-
-      document.getElementById(
-        'employeeEmail'
-      ).textContent =
-        employee.email || '--';
-
-
-      document.getElementById(
-        'avatar'
-      ).textContent =
-        getInitials(name);
+      document.getElementById('employeeName').textContent = name;
+      document.getElementById('employeeDepartment').textContent = employee.department || 'ECORP';
+      document.getElementById('employeeCode').textContent = employee.employeeId || '--';
+      document.getElementById('employeeEmail').textContent = employee.email || '--';
+      document.getElementById('avatar').textContent = getInitials(name);
     }
 
 
     function getInitials(name) {
 
-      const words =
-        name
-          .trim()
-          .split(/\s+/);
-
+      const words = name.trim().split(/\s+/);
 
       if (words.length === 1) {
-
-        return words[0]
-          .substring(0, 2)
-          .toUpperCase();
+        return words[0].substring(0, 2).toUpperCase();
       }
 
-
-      return (
-        words[0][0] +
-        words[words.length - 1][0]
-      ).toUpperCase();
+      return (words[0][0] + words[words.length - 1][0]).toUpperCase();
     }
 
 
@@ -3547,91 +3458,35 @@ body {
 
       try {
 
-        if (!navigator.mediaDevices ||
-            !navigator.mediaDevices.getUserMedia) {
-
-          throw new Error(
-            'Trình duyệt không hỗ trợ camera trực tiếp.'
-          );
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('Trình duyệt không hỗ trợ camera trực tiếp.');
         }
 
-
-        // Nếu đã có camera
         if (cameraStream) {
-
-          cameraStream
-            .getTracks()
-            .forEach(
-              track => track.stop()
-            );
+          cameraStream.getTracks().forEach(track => track.stop());
         }
 
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'user' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
 
-        cameraStream =
-          await navigator.mediaDevices.getUserMedia({
-
-            video: {
-
-              facingMode: {
-                ideal: 'user'
-              },
-
-              width: {
-                ideal: 1280
-              },
-
-              height: {
-                ideal: 720
-              }
-
-            },
-
-            audio: false
-
-          });
-
-
-        const video =
-          document.getElementById(
-            'video'
-          );
-
-
-        video.srcObject =
-          cameraStream;
-
-
+        const video = document.getElementById('video');
+        video.srcObject = cameraStream;
         await video.play();
 
-
-        document
-          .getElementById(
-            'cameraPlaceholder'
-          )
-          .classList
-          .add('hidden');
-
-
-        document
-          .getElementById(
-            'captureBtn'
-          )
-          .disabled = false;
-
-
-        document
-          .getElementById(
-            'startCameraBtn'
-          )
-          .textContent =
-          '↻ Mở lại camera';
+        document.getElementById('cameraPlaceholder').classList.add('hidden');
+        document.getElementById('captureBtn').disabled = false;
+        document.getElementById('startCameraBtn').textContent = '↻ Mở lại camera';
 
       } catch (error) {
-
         showModal(
           'Không thể mở camera',
-          error.message ||
-          'Vui lòng cấp quyền camera cho trình duyệt.',
+          error.message || 'Vui lòng cấp quyền camera cho trình duyệt.',
           false
         );
       }
@@ -3644,148 +3499,52 @@ body {
 
     function capturePhoto() {
 
-      const video =
-        document.getElementById(
-          'video'
-        );
+      const video = document.getElementById('video');
+      const canvas = document.getElementById('photoCanvas');
 
-      const canvas =
-        document.getElementById(
-          'photoCanvas'
-        );
-
-
-      if (
-        !video.videoWidth ||
-        !video.videoHeight
-      ) {
-
+      if (!video.videoWidth || !video.videoHeight) {
         showModal(
           'Camera chưa sẵn sàng',
           'Vui lòng chờ camera khởi động rồi chụp lại.',
           false
         );
-
         return;
       }
 
-
-      /*
-       * Giới hạn ảnh tối đa 1280px
-       * nhưng vẫn giữ tỷ lệ.
-       */
-
       const maxWidth = 1280;
-
-      let width =
-        video.videoWidth;
-
-      let height =
-        video.videoHeight;
-
+      let width = video.videoWidth;
+      let height = video.videoHeight;
 
       if (width > maxWidth) {
-
-        height =
-          Math.round(
-            height *
-            maxWidth /
-            width
-          );
-
-        width =
-          maxWidth;
+        height = Math.round(height * maxWidth / width);
+        width = maxWidth;
       }
 
+      canvas.width = width;
+      canvas.height = height;
 
-      canvas.width =
-        width;
+      const ctx = canvas.getContext('2d');
 
-      canvas.height =
-        height;
-
-
-      const ctx =
-        canvas.getContext('2d');
-
-
-      // Mirror giống camera preview
       ctx.save();
-
-      ctx.translate(
-        width,
-        0
-      );
-
-      ctx.scale(
-        -1,
-        1
-      );
-
-
-      ctx.drawImage(
-        video,
-        0,
-        0,
-        width,
-        height
-      );
-
-
+      ctx.translate(width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, width, height);
       ctx.restore();
 
+      capturedImage = canvas.toDataURL('image/jpeg', .78);
 
-      /*
-       * JPEG 78%
-       * để giảm dung lượng
-       */
+      video.style.display = 'none';
 
-      capturedImage =
-        canvas.toDataURL(
-          'image/jpeg',
-          .78
-        );
-
-
-      // Hiển thị ảnh vừa chụp
-      video.style.display =
-        'none';
-
-
-      const placeholder =
-        document.getElementById(
-          'cameraPlaceholder'
-        );
-
-
-      placeholder.classList
-        .remove('hidden');
-
+      const placeholder = document.getElementById('cameraPlaceholder');
+      placeholder.classList.remove('hidden');
 
       placeholder.innerHTML = `
-
-        <div class="camera-symbol">
-          ✓
-        </div>
-
-        <strong>
-          ĐÃ CHỤP ẢNH
-        </strong>
-
-        <span>
-          Ảnh đã được ghi nhận
-        </span>
-
+        <div class="camera-symbol">✓</div>
+        <strong>ĐÃ CHỤP ẢNH</strong>
+        <span>Ảnh đã được ghi nhận</span>
       `;
 
-
-      document
-        .getElementById(
-          'captureBtn'
-        )
-        .textContent =
-        '↻ Chụp lại';
-
+      document.getElementById('captureBtn').textContent = '↻ Chụp lại';
 
       updateSubmitButton();
     }
@@ -3797,145 +3556,70 @@ body {
 
     function getLocation() {
 
-      const button =
-        document.getElementById(
-          'locationBtn'
-        );
-
+      const button = document.getElementById('locationBtn');
 
       if (!navigator.geolocation) {
-
         showModal(
           'Không hỗ trợ GPS',
           'Thiết bị hoặc trình duyệt không hỗ trợ lấy vị trí.',
           false
         );
-
         return;
       }
 
-
       button.disabled = true;
+      button.textContent = '⌛ ĐANG XÁC NHẬN...';
 
-      button.textContent =
-        '⌛ ĐANG XÁC NHẬN...';
-
-
-      document
-        .getElementById(
-          'locationStatus'
-        )
-        .textContent =
-        'Đang lấy vị trí hiện tại...';
-
+      document.getElementById('locationStatus').textContent = 'Đang lấy vị trí hiện tại...';
 
       navigator.geolocation.getCurrentPosition(
 
         function(position) {
 
           locationData = {
-
-            latitude:
-              position.coords.latitude,
-
-            longitude:
-              position.coords.longitude,
-
-            accuracy:
-              position.coords.accuracy
-
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy
           };
 
+          const accuracy = Math.round(locationData.accuracy);
 
-          const accuracy =
-            Math.round(
-              locationData.accuracy
-            );
-
-
-          document
-            .getElementById(
-              'locationStatus'
-            )
-            .textContent =
+          document.getElementById('locationStatus').textContent =
             `Đã xác nhận • Độ chính xác ±${accuracy}m`;
 
-
-          document
-            .getElementById(
-              'locationIcon'
-            )
-            .textContent =
-            '✓';
-
+          document.getElementById('locationIcon').textContent = '✓';
 
           button.disabled = false;
-
-          button.textContent =
-            '✓ VỊ TRÍ ĐÃ XÁC NHẬN';
-
-
-          button.style.background =
-            'linear-gradient(135deg,#078454,#0da76b)';
-
+          button.textContent = '✓ VỊ TRÍ ĐÃ XÁC NHẬN';
+          button.style.background = 'linear-gradient(135deg,#078454,#0da76b)';
 
           updateSubmitButton();
-
         },
 
         function(error) {
 
-          let message =
-            'Không thể lấy vị trí.';
-
+          let message = 'Không thể lấy vị trí.';
 
           if (error.code === 1) {
-
-            message =
-              'Bạn chưa cấp quyền vị trí cho trình duyệt.';
-
+            message = 'Bạn chưa cấp quyền vị trí cho trình duyệt.';
           } else if (error.code === 2) {
-
-            message =
-              'Không xác định được vị trí hiện tại.';
-
+            message = 'Không xác định được vị trí hiện tại.';
           } else if (error.code === 3) {
-
-            message =
-              'Lấy vị trí quá thời gian. Vui lòng thử lại.';
+            message = 'Lấy vị trí quá thời gian. Vui lòng thử lại.';
           }
 
-
           button.disabled = false;
+          button.textContent = '📍 XÁC NHẬN VỊ TRÍ';
 
-          button.textContent =
-            '📍 XÁC NHẬN VỊ TRÍ';
+          document.getElementById('locationStatus').textContent = 'Chưa xác nhận vị trí';
 
-
-          document
-            .getElementById(
-              'locationStatus'
-            )
-            .textContent =
-            'Chưa xác nhận vị trí';
-
-
-          showModal(
-            'Không thể xác nhận vị trí',
-            message,
-            false
-          );
-
+          showModal('Không thể xác nhận vị trí', message, false);
         },
 
         {
-
           enableHighAccuracy: true,
-
           timeout: 15000,
-
           maximumAge: 0
-
         }
       );
     }
@@ -3945,121 +3629,51 @@ body {
        EMOTION
        ========================================== */
 
-    document
-      .addEventListener(
-        'change',
-        function(event) {
+    document.addEventListener('change', function(event) {
 
-          if (
-            event.target.name ===
-            'emotion'
-          ) {
+      if (event.target.name === 'emotion') {
 
-            document
-              .querySelectorAll(
-                '.emotion'
-              )
-              .forEach(
-                el =>
-                  el.classList.remove(
-                    'selected'
-                  )
-              );
+        document.querySelectorAll('.emotion').forEach(el => el.classList.remove('selected'));
 
-
-            const label =
-              event.target.closest(
-                '.emotion'
-              );
-
-
-            if (label) {
-
-              label.classList.add(
-                'selected'
-              );
-            }
-
-
-            updateEmotionReasonPanel(
-              event.target.value === 'Chưa tốt lắm'
-            );
-
-
-            updateSubmitButton();
-          }
+        const label = event.target.closest('.emotion');
+        if (label) {
+          label.classList.add('selected');
         }
-      );
-/* THÊM ĐOẠN NÀY */
-document
-  .getElementById('emotionReason')
-  ?.addEventListener('input', function() {
-    updateSubmitButton();
-  });
+
+        updateEmotionReasonPanel(event.target.value === 'Chưa tốt lắm');
+        updateSubmitButton();
+      }
+    });
+
+    document.getElementById('emotionReason')?.addEventListener('input', function() {
+      updateSubmitButton();
+    });
 
     function getSelectedEmotion() {
-
-      const checked =
-        document.querySelector(
-          'input[name="emotion"]:checked'
-        );
-
-
-      return checked
-        ? checked.value
-        : null;
+      const checked = document.querySelector('input[name="emotion"]:checked');
+      return checked ? checked.value : null;
     }
-
 
     function getEmotionReason() {
-
-      const textarea =
-        document.getElementById(
-          'emotionReason'
-        );
-
-
-      return textarea
-        ? textarea.value.trim()
-        : '';
+      const textarea = document.getElementById('emotionReason');
+      return textarea ? textarea.value.trim() : '';
     }
-
 
     function updateEmotionReasonPanel(shouldOpen) {
 
-      const panel =
-        document.getElementById(
-          'emotionReasonPanel'
-        );
-
-      const textarea =
-        document.getElementById(
-          'emotionReason'
-        );
-
+      const panel = document.getElementById('emotionReasonPanel');
+      const textarea = document.getElementById('emotionReason');
 
       if (!panel || !textarea) {
         return;
       }
 
-
-      panel.classList.toggle(
-        'open',
-        shouldOpen
-      );
-
-      panel.setAttribute(
-        'aria-hidden',
-        String(!shouldOpen)
-      );
-
+      panel.classList.toggle('open', shouldOpen);
+      panel.setAttribute('aria-hidden', String(!shouldOpen));
       textarea.disabled = !shouldOpen;
 
-
       if (!shouldOpen) {
-
         textarea.value = '';
-
       }
     }
 
@@ -4070,30 +3684,13 @@ document
 
     function updateSubmitButton() {
 
-      const emotion =
-        getSelectedEmotion();
+      const emotion = getSelectedEmotion();
+      const emotionReason = getEmotionReason();
+      const reasonReady = emotion !== 'Chưa tốt lắm' || Boolean(emotionReason);
 
-      const emotionReason =
-        getEmotionReason();
+      const ready = locationData && capturedImage && emotion && reasonReady;
 
-      const reasonReady =
-        emotion !== 'Chưa tốt lắm' ||
-        Boolean(emotionReason);
-
-
-      const ready =
-        locationData &&
-        capturedImage &&
-        emotion &&
-        reasonReady;
-
-
-      document
-        .getElementById(
-          'submitBtn'
-        )
-        .disabled =
-        !ready;
+      document.getElementById('submitBtn').disabled = !ready;
     }
 
 
@@ -4107,60 +3704,28 @@ document
         return;
       }
 
-
       if (!locationData) {
-
-        showModal(
-          'Thiếu vị trí',
-          'Vui lòng xác nhận vị trí trước khi điểm danh.',
-          false
-        );
-
+        showModal('Thiếu vị trí', 'Vui lòng xác nhận vị trí trước khi điểm danh.', false);
         return;
       }
-
 
       if (!capturedImage) {
-
-        showModal(
-          'Thiếu ảnh',
-          'Vui lòng chụp ảnh check-in.',
-          false
-        );
-
+        showModal('Thiếu ảnh', 'Vui lòng chụp ảnh check-in.', false);
         return;
       }
 
-
-      const emotion =
-        getSelectedEmotion();
-
+      const emotion = getSelectedEmotion();
 
       if (!emotion) {
-
-        showModal(
-          'Chưa chọn cảm xúc',
-          'Vui lòng chọn cảm xúc hôm nay.',
-          false
-        );
-
+        showModal('Chưa chọn cảm xúc', 'Vui lòng chọn cảm xúc hôm nay.', false);
         return;
       }
 
+      const emotionReason = getEmotionReason();
 
-      const emotionReason =
-        getEmotionReason();
+      if (emotion === 'Chưa tốt lắm' && !emotionReason) {
 
-      if (
-        emotion === 'Chưa tốt lắm' &&
-        !emotionReason
-      ) {
-
-        const textarea =
-          document.getElementById(
-            'emotionReason'
-          );
-
+        const textarea = document.getElementById('emotionReason');
         if (textarea) {
           textarea.focus();
         }
@@ -4172,70 +3737,91 @@ document
         );
 
         updateSubmitButton();
+        return;
+      }
+
+      isSubmitting = true;
+
+      // ĐÃ THÊM: sinh mã checkinId duy nhất cho lần bấm gửi này.
+      // Mã này được gửi kèm ở mọi lần thử (kể cả retry) để server
+      // (Code.gs) nhận biết và không ghi trùng dòng.
+      currentCheckinId = (employee?.employeeId || employee?.email || 'user') + '_' + Date.now();
+      submitRetryCount = 0;
+
+      const button = document.getElementById('submitBtn');
+      button.disabled = true;
+
+      button.innerHTML = `
+        <div class="submit-icon">⌛</div>
+        <div class="submit-text">
+          <strong>ĐANG GỬI DỮ LIỆU...</strong>
+          <span>Vui lòng không đóng trang</span>
+        </div>
+      `;
+
+      const payload = {
+        latitude: locationData.latitude,
+        longitude: locationData.longitude,
+        accuracy: locationData.accuracy,
+        imageBase64: capturedImage,
+        emotion: emotion,
+        emotionReason: emotion === 'Chưa tốt lắm' ? emotionReason : '',
+        checkinId: currentCheckinId
+      };
+
+      performSubmitAttempt(payload);
+    }
+
+
+    // ĐÃ THÊM: tách phần gửi request ra hàm riêng để có thể gọi lại
+    // (retry) mà không cần build lại payload hay validate lại form.
+    function performSubmitAttempt(payload) {
+
+      callApi('submitCheckin', payload)
+        .then(handleSubmitResponse)
+        .catch(function(error) {
+          handleSubmitAttemptError(error, payload);
+        });
+    }
+
+
+    // ĐÃ THÊM: khi gặp lỗi kết nối (timeout/mất mạng), tự động thử
+    // lại tối đa MAX_SUBMIT_RETRIES lần bằng đúng checkinId cũ.
+    // An toàn vì Code.gs sẽ nhận diện checkinId trùng và không ghi
+    // thêm dòng nếu lần thử trước thực ra đã ghi thành công rồi.
+    function handleSubmitAttemptError(error, payload) {
+
+      if (submitRetryCount < MAX_SUBMIT_RETRIES) {
+
+        submitRetryCount++;
+
+        const button = document.getElementById('submitBtn');
+
+        button.innerHTML = `
+          <div class="submit-icon">⌛</div>
+          <div class="submit-text">
+            <strong>ĐANG THỬ LẠI (${submitRetryCount}/${MAX_SUBMIT_RETRIES})...</strong>
+            <span>Kết nối không ổn định, vui lòng chờ</span>
+          </div>
+        `;
+
+        setTimeout(function() {
+          performSubmitAttempt(payload);
+        }, SUBMIT_RETRY_DELAY_MS);
 
         return;
       }
 
+      // Đã thử hết số lần cho phép mà vẫn lỗi -> báo thật cho người dùng
+      isSubmitting = false;
+      restoreSubmitButton();
 
-      isSubmitting = true;
-
-
-      const button =
-        document.getElementById(
-          'submitBtn'
-        );
-
-
-      button.disabled = true;
-
-
-      button.innerHTML = `
-
-        <div class="submit-icon">
-          ⌛
-        </div>
-
-        <div class="submit-text">
-
-          <strong>
-            ĐANG GỬI DỮ LIỆU...
-          </strong>
-
-          <span>
-            Vui lòng không đóng trang
-          </span>
-
-        </div>
-
-      `;
-
-
-      callApi(
-        'submitCheckin',
-        {
-          latitude:
-            locationData.latitude,
-
-          longitude:
-            locationData.longitude,
-
-          accuracy:
-            locationData.accuracy,
-
-          imageBase64:
-            capturedImage,
-
-          emotion:
-            emotion,
-
-          emotionReason:
-            emotion === 'Chưa tốt lắm'
-              ? emotionReason
-              : ''
-        }
-      )
-        .then(handleSubmitResponse)
-        .catch(handleSubmitError);
+      showModal(
+        'Có lỗi xảy ra',
+        (error && error.message) ||
+        'Không thể gửi dữ liệu lên hệ thống. Vui lòng kiểm tra kết nối và thử lại.',
+        false
+      );
     }
 
 
@@ -4247,125 +3833,52 @@ document
 
       isSubmitting = false;
 
-
-      if (
-        !response ||
-        !response.success
-      ) {
-
+      if (!response || !response.success) {
         restoreSubmitButton();
-
         showModal(
           'Điểm danh chưa thành công',
-          response?.message ||
-          'Có lỗi xảy ra.',
+          response?.message || 'Có lỗi xảy ra.',
           false
         );
-
         return;
       }
 
-
-      // Tắt camera
       stopCamera();
 
-
-      document
-        .getElementById(
-          'submitBtn'
-        )
-        .innerHTML = `
-
-          <div class="submit-icon">
-            ✓
-          </div>
-
-          <div class="submit-text">
-
-            <strong>
-              ĐÃ HOÀN TẤT ĐIỂM DANH
-            </strong>
-
-            <span>
-              Dữ liệu đã được ghi nhận
-            </span>
-
-          </div>
-
-        `;
-
+      document.getElementById('submitBtn').innerHTML = `
+        <div class="submit-icon">✓</div>
+        <div class="submit-text">
+          <strong>ĐÃ HOÀN TẤT ĐIỂM DANH</strong>
+          <span>Dữ liệu đã được ghi nhận</span>
+        </div>
+      `;
 
       showModal(
-
         'Điểm danh thành công 🎉',
-
         `
-
           Chào ${response.employee.name}!
-
           <br><br>
-
-          Hệ thống đã ghi nhận điểm danh
-          của bạn thành công.
-
+          Hệ thống đã ghi nhận điểm danh của bạn thành công.
           <br><br>
-
           Cảm ơn bạn đã đồng hành cùng ECORP.
-
         `,
-
         true
-      );
-    }
-
-
-    function handleSubmitError(error) {
-
-      isSubmitting = false;
-
-      restoreSubmitButton();
-
-
-      showModal(
-        'Có lỗi xảy ra',
-        error?.message ||
-        'Không thể gửi dữ liệu lên hệ thống.',
-        false
       );
     }
 
 
     function restoreSubmitButton() {
 
-      const button =
-        document.getElementById(
-          'submitBtn'
-        );
-
-
+      const button = document.getElementById('submitBtn');
       button.disabled = false;
 
-
       button.innerHTML = `
-
-        <div class="submit-icon">
-          ➤
-        </div>
-
+        <div class="submit-icon">➤</div>
         <div class="submit-text">
-
-          <strong>
-            HOÀN TẤT ĐIỂM DANH
-          </strong>
-
-          <span>
-            Gửi dữ liệu lên hệ thống
-          </span>
-
+          <strong>HOÀN TẤT ĐIỂM DANH</strong>
+          <span>Gửi dữ liệu lên hệ thống</span>
         </div>
-
       `;
-
 
       updateSubmitButton();
     }
@@ -4376,16 +3889,8 @@ document
        ========================================== */
 
     function stopCamera() {
-
       if (cameraStream) {
-
-        cameraStream
-          .getTracks()
-          .forEach(
-            track =>
-              track.stop()
-          );
-
+        cameraStream.getTracks().forEach(track => track.stop());
         cameraStream = null;
       }
     }
@@ -4397,54 +3902,23 @@ document
 
     function updateClock() {
 
-      const now =
-        new Date();
+      const now = new Date();
 
+      const date = now.toLocaleDateString('vi-VN', {
+        weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric'
+      });
 
-      const date =
-        now.toLocaleDateString(
-          'vi-VN',
-          {
-            weekday: 'long',
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-          }
-        );
+      const time = now.toLocaleTimeString('vi-VN', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
 
-
-      const time =
-        now.toLocaleTimeString(
-          'vi-VN',
-          {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          }
-        );
-
-
-      document
-        .getElementById(
-          'currentDate'
-        )
-        .textContent =
-        capitalizeFirstLetter(date);
-
-
-      document
-        .getElementById(
-          'currentTime'
-        )
-        .textContent =
-        time;
+      document.getElementById('currentDate').textContent = capitalizeFirstLetter(date);
+      document.getElementById('currentTime').textContent = time;
     }
 
 
     function capitalizeFirstLetter(text) {
-
-      return text.charAt(0).toUpperCase() +
-        text.slice(1);
+      return text.charAt(0).toUpperCase() + text.slice(1);
     }
 
 
@@ -4453,126 +3927,41 @@ document
        ========================================== */
 
     function hideLoading() {
-
-      document
-        .getElementById(
-          'loadingScreen'
-        )
-        .classList
-        .add('hide');
+      document.getElementById('loadingScreen').classList.add('hide');
     }
-
 
     function showApp() {
-
-      document
-        .getElementById(
-          'app'
-        )
-        .style.display =
-        'block';
+      document.getElementById('app').style.display = 'block';
     }
-
 
     function showError(message) {
-
-      document
-        .getElementById(
-          'app'
-        )
-        .style.display =
-        'none';
-
-
-      document
-        .getElementById(
-          'errorPage'
-        )
-        .style.display =
-        'flex';
-
-
-      document
-        .getElementById(
-          'errorMessage'
-        )
-        .textContent =
-        message;
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('errorPage').style.display = 'flex';
+      document.getElementById('errorMessage').textContent = message;
     }
 
+    function showModal(title, message, success = true) {
 
-    function showModal(
-      title,
-      message,
-      success = true
-    ) {
+      const modal = document.getElementById('modal');
+      const icon = document.getElementById('modalIcon');
 
-      const modal =
-        document.getElementById(
-          'modal'
-        );
+      icon.className = 'modal-icon ' + (success ? 'success' : 'error');
+      icon.textContent = success ? '✓' : '!';
 
+      document.getElementById('modalTitle').textContent = title;
+      document.getElementById('modalMessage').innerHTML = message;
 
-      const icon =
-        document.getElementById(
-          'modalIcon'
-        );
-
-
-      icon.className =
-        'modal-icon ' +
-        (
-          success
-            ? 'success'
-            : 'error'
-        );
-
-
-      icon.textContent =
-        success
-          ? '✓'
-          : '!';
-
-
-      document
-        .getElementById(
-          'modalTitle'
-        )
-        .textContent =
-        title;
-
-
-      document
-        .getElementById(
-          'modalMessage'
-        )
-        .innerHTML =
-        message;
-
-
-      modal.classList.add(
-        'show'
-      );
+      modal.classList.add('show');
     }
-
 
     function closeModal() {
-
-      document
-        .getElementById(
-          'modal'
-        )
-        .classList
-        .remove('show');
+      document.getElementById('modal').classList.remove('show');
     }
-
 
     function reloadAccount() {
 
       try {
-        if (window.google &&
-            google.accounts &&
-            google.accounts.id) {
+        if (window.google && google.accounts && google.accounts.id) {
           google.accounts.id.disableAutoSelect();
         }
       } catch (_) {}
@@ -4580,15 +3969,9 @@ document
       location.reload();
     }
 
-
     function handleServerError(error) {
-
       hideLoading();
-
-      showError(
-        error?.message ||
-        'Không thể kết nối với hệ thống.'
-      );
+      showError(error?.message || 'Không thể kết nối với hệ thống.');
     }
 
 
@@ -4596,14 +3979,9 @@ document
        PAGE EXIT
        ========================================== */
 
-    window.addEventListener(
-      'beforeunload',
-      function() {
-
-        stopCamera();
-
-      }
-    );
+    window.addEventListener('beforeunload', function() {
+      stopCamera();
+    });
 
   </script>
 
