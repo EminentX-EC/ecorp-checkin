@@ -3274,7 +3274,7 @@ body {
     let cameraStream = null;
     let isSubmitting = false;
 
-    // ĐÃ THÊM: state cho cơ chế chống ghi trùng + tự động retry
+    // State cho cơ chế chống ghi trùng + tự động retry
     let currentCheckinId = null;
     let submitRetryCount = 0;
     const MAX_SUBMIT_RETRIES = 2;       // thử lại tối đa 2 lần khi mất kết nối
@@ -3742,7 +3742,7 @@ body {
 
       isSubmitting = true;
 
-      // ĐÃ THÊM: sinh mã checkinId duy nhất cho lần bấm gửi này.
+      // Sinh mã checkinId duy nhất cho lần bấm gửi này.
       // Mã này được gửi kèm ở mọi lần thử (kể cả retry) để server
       // (Code.gs) nhận biết và không ghi trùng dòng.
       currentCheckinId = (employee?.employeeId || employee?.email || 'user') + '_' + Date.now();
@@ -3773,11 +3773,20 @@ body {
     }
 
 
-    // ĐÃ THÊM: tách phần gửi request ra hàm riêng để có thể gọi lại
-    // (retry) mà không cần build lại payload hay validate lại form.
+    // Tách phần gửi request ra hàm riêng để có thể gọi lại (retry)
+    // mà không cần build lại payload hay validate lại form.
     function performSubmitAttempt(payload) {
 
-      callApi('submitCheckin', payload)
+      // Đánh dấu isRetry để server biết có cần check trùng sớm hay
+      // không (chỉ cần thiết khi thực sự là lần gửi lại). Lần gửi
+      // đầu tiên KHÔNG bật cờ này để giữ tốc độ như bản gốc.
+      const attemptPayload = Object.assign(
+        {},
+        payload,
+        { isRetry: submitRetryCount > 0 }
+      );
+
+      callApi('submitCheckin', attemptPayload)
         .then(handleSubmitResponse)
         .catch(function(error) {
           handleSubmitAttemptError(error, payload);
@@ -3785,10 +3794,10 @@ body {
     }
 
 
-    // ĐÃ THÊM: khi gặp lỗi kết nối (timeout/mất mạng), tự động thử
-    // lại tối đa MAX_SUBMIT_RETRIES lần bằng đúng checkinId cũ.
-    // An toàn vì Code.gs sẽ nhận diện checkinId trùng và không ghi
-    // thêm dòng nếu lần thử trước thực ra đã ghi thành công rồi.
+    // Khi gặp lỗi kết nối (timeout/mất mạng), tự động thử lại tối đa
+    // MAX_SUBMIT_RETRIES lần bằng đúng checkinId cũ. An toàn vì
+    // Code.gs sẽ nhận diện checkinId trùng và không ghi thêm dòng
+    // nếu lần thử trước thực ra đã ghi thành công rồi.
     function handleSubmitAttemptError(error, payload) {
 
       if (submitRetryCount < MAX_SUBMIT_RETRIES) {
