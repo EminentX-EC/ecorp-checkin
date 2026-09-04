@@ -859,6 +859,44 @@
     }
 
 
+    /* [MỚI] Checkbox "Đi khảo sát" - đặt trong Card vị trí,
+       giữa nút xác nhận vị trí và dòng ghi chú bảo mật.
+       Style đơn giản, đồng bộ font & màu với phần còn lại. */
+    .survey-check {
+
+      display: flex;
+
+      align-items: center;
+
+      gap: 8px;
+
+      margin-top: 12px;
+
+      padding: 4px 2px;
+
+      font-size: 12px;
+
+      font-weight: 600;
+
+      color: #3b5682;
+
+      cursor: pointer;
+
+      user-select: none;
+    }
+
+
+    .survey-check input[type="checkbox"] {
+
+      width: 16px;
+      height: 16px;
+
+      accent-color: var(--blue);
+
+      cursor: pointer;
+    }
+
+
     /* ===============================
        CAMERA
        =============================== */
@@ -2857,6 +2895,17 @@ body {
         </button>
 
 
+        <!-- [MỚI] Checkbox "Đi khảo sát" - không bắt buộc, chỉ vị trí
+             mới là bắt buộc để bật nút gửi điểm danh -->
+        <label class="survey-check">
+          <input
+            type="checkbox"
+            id="surveyCheckbox"
+          >
+          <span>Đi khảo sát</span>
+        </label>
+
+
         <div class="security-note">
           🔒 Vị trí của bạn chỉ được ghi nhận khi bấm xác nhận.
         </div>
@@ -3688,6 +3737,8 @@ body {
       const emotionReason = getEmotionReason();
       const reasonReady = emotion !== 'Chưa tốt lắm' || Boolean(emotionReason);
 
+      // [GHI CHÚ] Checkbox "Đi khảo sát" KHÔNG tham gia điều kiện này
+      // vì không bắt buộc - chỉ vị trí + ảnh + cảm xúc quyết định nút gửi.
       const ready = locationData && capturedImage && emotion && reasonReady;
 
       document.getElementById('submitBtn').disabled = !ready;
@@ -3740,6 +3791,10 @@ body {
         return;
       }
 
+      // [MỚI] Đọc trạng thái checkbox "Đi khảo sát" - không bắt buộc
+      const isSurveyTrip =
+        Boolean(document.getElementById('surveyCheckbox')?.checked);
+
       isSubmitting = true;
 
       // Sinh mã checkinId duy nhất cho lần bấm gửi này.
@@ -3766,7 +3821,8 @@ body {
         imageBase64: capturedImage,
         emotion: emotion,
         emotionReason: emotion === 'Chưa tốt lắm' ? emotionReason : '',
-        checkinId: currentCheckinId
+        checkinId: currentCheckinId,
+        diKhaoSat: isSurveyTrip // [MỚI] cờ "Đi khảo sát", server ghi 'x' hoặc rỗng
       };
 
       performSubmitAttempt(payload);
