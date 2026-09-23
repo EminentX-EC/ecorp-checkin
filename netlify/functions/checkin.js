@@ -1,13 +1,10 @@
 // ECORP Check-in - Netlify Function
-// - GET  /.netlify/functions/checkin?config=1 -> returns Google Client ID
-// - POST /.netlify/functions/checkin -> proxies authenticated request to Apps Script
-
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxBmIqc2tF6somI5v0ftzQj7wIWLpndn-LRt_dAQWFHSRhTfH3fP1crYSTWUIsbwNWNAw/exec';
+// Frontend configuration only. Check-in data is handled directly by Supabase.
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Content-Type': 'application/json; charset=utf-8'
 };
 
@@ -16,61 +13,31 @@ exports.handler = async (event) => {
     return { statusCode: 204, headers: corsHeaders, body: '' };
   }
 
-  // Public Google Client ID configuration for the frontend / Apps Script.
-  if (event.httpMethod === 'GET' && event.queryStringParameters?.config === '1') {
-    const googleClientId = String(process.env.GOOGLE_CLIENT_ID || '').trim();
-
-    if (!googleClientId) {
-      return json(500, {
-        success: false,
-        message: 'Netlify chưa cấu hình GOOGLE_CLIENT_ID.'
-      });
-    }
-
-    return json(200, { googleClientId });
-  }
-
-  if (event.httpMethod !== 'POST') {
+  if (event.httpMethod !== 'GET') {
     return json(405, { success: false, message: 'Method không được hỗ trợ.' });
   }
 
-  try {
-    const payload = JSON.parse(event.body || '{}');
+  if (event.queryStringParameters?.config === '1') {
+    const supabaseUrl = String(process.env.SUPABASE_URL || '').trim();
+    const supabasePublishableKey = String(
+      process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || ''
+    ).trim();
 
-    if (!payload.idToken) {
-      return json(400, {
+    if (!supabaseUrl || !supabasePublishableKey) {
+      return json(500, {
         success: false,
-        message: 'Thiếu Google ID token. Vui lòng đăng nhập lại.'
+        message: 'Netlify chưa cấu hình SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY.'
       });
     }
 
-    const response = await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const text = await response.text();
-
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (_) {
-      data = {
-        success: false,
-        message: 'Apps Script trả về dữ liệu không hợp lệ.'
-      };
-    }
-
-    return json(response.ok ? 200 : 502, data);
-  } catch (error) {
-    return json(500, {
-      success: false,
-      message: error?.message || 'Không thể kết nối hệ thống điểm danh.'
+    return json(200, {
+      success: true,
+      supabaseUrl,
+      supabasePublishableKey
     });
   }
+
+  return json(404, { success: false, message: 'Không tìm thấy endpoint.' });
 };
 
 function json(statusCode, body) {
