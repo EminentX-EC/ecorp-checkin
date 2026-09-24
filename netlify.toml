@@ -4,3 +4,6 @@
 
 [functions."sync-checkins"]
   schedule = "*/5 * * * *"
+
+[functions."sync-employees"]
+  schedule = "0 0 * * *"
